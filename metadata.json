@@ -1,0 +1,5 @@
+{
+  "name": "Icelandic TTS App",
+  "description": "An app that generates perfect Icelandic speech using Gemini 2.5 Flash TTS.",
+  "requestFramePermissions": []
+}
