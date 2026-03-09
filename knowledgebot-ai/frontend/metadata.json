@@ -1,0 +1,8 @@
+{
+  "name": "KnowledgeBot AI",
+  "description": "A multi-modal personal AI assistant with voice, camera, and screen sharing capabilities.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
+}
