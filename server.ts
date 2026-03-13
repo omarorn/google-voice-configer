@@ -29,21 +29,23 @@ async function startServer() {
   // API routes FIRST
   app.post("/api/tts/openai", async (req, res) => {
     try {
-      const { text, voice } = req.body;
-      if (!process.env.OPENAI_API_KEY) {
-        return res.status(400).json({ error: "OPENAI_API_KEY is not configured in the environment." });
+      const { text, voice, model = 'tts-1', speed = 1.0, apiKey } = req.body;
+      const keyToUse = apiKey || process.env.OPENAI_API_KEY || process.env.openai_api_key;
+      if (!keyToUse) {
+        return res.status(400).json({ error: "OpenAI API Key is missing. Provide it in settings or environment." });
       }
 
       const response = await fetch('https://api.openai.com/v1/audio/speech', {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
+          'Authorization': `Bearer ${keyToUse}`,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          model: 'tts-1',
+          model: model,
           input: text,
           voice: voice.toLowerCase(),
+          speed: Number(speed),
         }),
       });
 
@@ -63,9 +65,10 @@ async function startServer() {
 
   app.post("/api/tts/elevenlabs", async (req, res) => {
     try {
-      const { text, voice } = req.body;
-      if (!process.env.ELEVENLABS_API_KEY) {
-        return res.status(400).json({ error: "ELEVENLABS_API_KEY is not configured in the environment." });
+      const { text, voice, model_id = 'eleven_turbo_v2_5', stability = 0.5, similarity_boost = 0.75, apiKey } = req.body;
+      const keyToUse = apiKey || process.env.ELEVENLABS_API_KEY || process.env.ELEVENLABAS_API_KEY;
+      if (!keyToUse) {
+        return res.status(400).json({ error: "ElevenLabs API Key is missing. Provide it in settings or environment." });
       }
 
       const voiceId = ELEVENLABS_VOICES[voice] || ELEVENLABS_VOICES['Rachel'];
@@ -73,15 +76,15 @@ async function startServer() {
       const response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`, {
         method: 'POST',
         headers: {
-          'xi-api-key': process.env.ELEVENLABS_API_KEY,
+          'xi-api-key': keyToUse,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
           text: text,
-          model_id: 'eleven_turbo_v2_5',
+          model_id: model_id,
           voice_settings: {
-            stability: 0.5,
-            similarity_boost: 0.75,
+            stability: Number(stability),
+            similarity_boost: Number(similarity_boost),
           }
         }),
       });
