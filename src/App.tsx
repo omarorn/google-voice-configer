@@ -60,10 +60,40 @@ async function generateIcelandicSpeech() {
   return audioBase64;
 }`;
 
+  const cloudTtsJson = JSON.stringify({
+    url: "https://texttospeech.googleapis.com/v1/text:synthesize",
+    headers: {
+      Authorization: "Bearer YOUR_GOOGLE_SERVICE_ACCOUNT_CREDENTIALS",
+      "Content-Type": "application/json"
+    },
+    body: {
+      input: { text: finalPrompt },
+      voice: {
+        languageCode: "en-US",
+        name: `en-US-Chirp3-HD-${voice}`
+      },
+      audioConfig: {
+        audioEncoding: "LINEAR16",
+        speakingRate: 1.0,
+        sampleRateHertz: 48000
+      }
+    },
+    responseSampleRate: 48000,
+    jsonAudioFieldPath: "audioContent"
+  }, null, 2);
+
+  const [copiedJson, setCopiedJson] = useState(false);
+
   const handleCopy = () => {
     navigator.clipboard.writeText(codeSnippet);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
+  };
+
+  const handleCopyJson = () => {
+    navigator.clipboard.writeText(cloudTtsJson);
+    setCopiedJson(true);
+    setTimeout(() => setCopiedJson(false), 2000);
   };
 
   const stopAudio = () => {
@@ -313,6 +343,28 @@ async function generateIcelandicSpeech() {
           <div className="p-4 overflow-x-auto">
             <pre className="text-sm text-zinc-300 font-mono leading-relaxed">
               <code>{codeSnippet}</code>
+            </pre>
+          </div>
+        </div>
+
+        {/* Cloud TTS JSON Viewer Card */}
+        <div className="bg-zinc-900 rounded-2xl shadow-sm border border-zinc-800 overflow-hidden">
+          <div className="flex items-center justify-between px-4 py-3 border-b border-zinc-800 bg-zinc-950">
+            <div className="flex items-center gap-2 text-zinc-400">
+              <Code className="w-4 h-4" />
+              <span className="text-sm font-medium">Cloud TTS JSON</span>
+            </div>
+            <button
+              onClick={handleCopyJson}
+              className="flex items-center gap-1.5 text-xs font-medium text-zinc-400 hover:text-zinc-100 transition-colors bg-zinc-800/50 hover:bg-zinc-800 px-2.5 py-1.5 rounded-md"
+            >
+              {copiedJson ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+              {copiedJson ? 'Copied!' : 'Copy JSON'}
+            </button>
+          </div>
+          <div className="p-4 overflow-x-auto">
+            <pre className="text-sm text-zinc-300 font-mono leading-relaxed">
+              <code>{cloudTtsJson}</code>
             </pre>
           </div>
         </div>
