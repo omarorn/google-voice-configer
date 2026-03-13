@@ -5,10 +5,16 @@ import { Play, Loader2, Volume2, Square, Info, Code, Copy, Check, Settings } fro
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
 // Note: Gemini 2.5 Flash TTS strictly supports only these 5 voices.
-const VOICES = ['Puck', 'Charon', 'Kore', 'Fenrir', 'Zephyr'];
+const PROVIDERS = ['Gemini', 'OpenAI', 'ElevenLabs'];
+const VOICES: Record<string, string[]> = {
+  Gemini: ['Puck', 'Charon', 'Kore', 'Fenrir', 'Zephyr'],
+  OpenAI: ['Alloy', 'Echo', 'Fable', 'Onyx', 'Nova', 'Shimmer'],
+  ElevenLabs: ['Rachel', 'Drew', 'Clyde', 'Fin', 'Sarah', 'Antoni', 'Charlie', 'Callum', 'Charlotte', 'Alice', 'Matilda', 'Will', 'Freya', 'Jessie', 'Michael']
+};
 const EMOTIONS = ['Neutral', 'Cheerfully', 'Sadly', 'Angrily', 'Whispering', 'Shouting', 'Custom'];
 
 export default function App() {
+  const [provider, setProvider] = useState('Gemini');
   const [text, setText] = useState('Hæ, hvernig hefur þú það í dag? Ég vona að þú hafir það gott.');
   const [voice, setVoice] = useState('Kore');
   const [emotion, setEmotion] = useState('Neutral');
@@ -32,7 +38,9 @@ export default function App() {
   }
   const finalPrompt = `${promptInstruction}:\n${text}`;
 
-  const codeSnippet = `import { GoogleGenAI } from '@google/genai';
+  let codeSnippet = '';
+  if (provider === 'Gemini') {
+    codeSnippet = `import { GoogleGenAI } from '@google/genai';
 
 // Initialize the Gemini API client
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
@@ -59,6 +67,31 @@ async function generateIcelandicSpeech() {
   const audioBase64 = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
   return audioBase64;
 }`;
+  } else if (provider === 'OpenAI') {
+    codeSnippet = `// Call your backend endpoint
+const response = await fetch('/api/tts/openai', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    text: ${JSON.stringify(text)},
+    voice: '${voice}'
+  })
+});
+const data = await response.json();
+const audioBase64 = data.audioBase64;`;
+  } else if (provider === 'ElevenLabs') {
+    codeSnippet = `// Call your backend endpoint
+const response = await fetch('/api/tts/elevenlabs', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    text: ${JSON.stringify(text)},
+    voice: '${voice}'
+  })
+});
+const data = await response.json();
+const audioBase64 = data.audioBase64;`;
+  }
 
   const cloudTtsJson = JSON.stringify({
     url: "https://texttospeech.googleapis.com/v1/text:synthesize",
@@ -115,24 +148,44 @@ async function generateIcelandicSpeech() {
     stopAudio();
 
     try {
-      const response = await ai.models.generateContent({
-        model: 'gemini-2.5-flash-preview-tts',
-        contents: [{ parts: [{ text: finalPrompt }] }],
-        config: {
-          responseModalities: ['AUDIO'],
-          speechConfig: {
-            voiceConfig: {
-              prebuiltVoiceConfig: { voiceName: voice },
+      if (provider === 'Gemini') {
+        const response = await ai.models.generateContent({
+          model: 'gemini-2.5-flash-preview-tts',
+          contents: [{ parts: [{ text: finalPrompt }] }],
+          config: {
+            responseModalities: ['AUDIO'],
+            speechConfig: {
+              voiceConfig: {
+                prebuiltVoiceConfig: { voiceName: voice },
+              },
             },
           },
-        },
-      });
+        });
 
-      const audioPart = response.candidates?.[0]?.content?.parts?.[0]?.inlineData;
-      if (audioPart && audioPart.data) {
-        playAudio(audioPart.data, audioPart.mimeType);
-      } else {
-        setError('No audio generated.');
+        const audioPart = response.candidates?.[0]?.content?.parts?.[0]?.inlineData;
+        if (audioPart && audioPart.data) {
+          playAudio(audioPart.data, audioPart.mimeType);
+        } else {
+          setError('No audio generated.');
+        }
+      } else if (provider === 'OpenAI') {
+        const response = await fetch('/api/tts/openai', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text, voice })
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || 'Failed to generate OpenAI speech');
+        playAudio(data.audioBase64, data.mimeType);
+      } else if (provider === 'ElevenLabs') {
+        const response = await fetch('/api/tts/elevenlabs', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text, voice })
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || 'Failed to generate ElevenLabs speech');
+        playAudio(data.audioBase64, data.mimeType);
       }
     } catch (err: any) {
       console.error(err);
@@ -222,54 +275,75 @@ async function generateIcelandicSpeech() {
               
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <label className="block text-sm font-medium text-zinc-700">Base Prompt</label>
-                  <input 
-                    type="text" 
-                    value={basePrompt} 
-                    onChange={(e) => setBasePrompt(e.target.value)}
-                    className="w-full p-2.5 border border-zinc-200 rounded-lg focus:ring-2 focus:ring-zinc-900 focus:border-zinc-900 outline-none text-sm bg-white"
-                  />
+                  <label className="block text-sm font-medium text-zinc-700">Provider</label>
+                  <select
+                    value={provider}
+                    onChange={(e) => {
+                      const newProvider = e.target.value;
+                      setProvider(newProvider);
+                      setVoice(VOICES[newProvider][0]);
+                    }}
+                    className="w-full p-2.5 border border-zinc-200 rounded-lg focus:ring-2 focus:ring-zinc-900 focus:border-zinc-900 outline-none bg-white text-sm"
+                  >
+                    {PROVIDERS.map((p) => <option key={p} value={p}>{p}</option>)}
+                  </select>
                 </div>
                 <div className="space-y-2">
-                  <label className="block text-sm font-medium text-zinc-700">Voice <span className="text-zinc-400 font-normal text-xs ml-1">(5 available)</span></label>
+                  <label className="block text-sm font-medium text-zinc-700">Voice <span className="text-zinc-400 font-normal text-xs ml-1">({VOICES[provider].length} available)</span></label>
                   <select
                     value={voice}
                     onChange={(e) => setVoice(e.target.value)}
                     className="w-full p-2.5 border border-zinc-200 rounded-lg focus:ring-2 focus:ring-zinc-900 focus:border-zinc-900 outline-none bg-white text-sm"
                   >
-                    {VOICES.map((v) => <option key={v} value={v}>{v}</option>)}
+                    {VOICES[provider].map((v) => <option key={v} value={v}>{v}</option>)}
                   </select>
                 </div>
-                <div className="space-y-2">
-                  <label className="block text-sm font-medium text-zinc-700">Emotion / Style</label>
-                  <select
-                    value={emotion}
-                    onChange={(e) => setEmotion(e.target.value)}
-                    className="w-full p-2.5 border border-zinc-200 rounded-lg focus:ring-2 focus:ring-zinc-900 focus:border-zinc-900 outline-none bg-white text-sm"
-                  >
-                    {EMOTIONS.map((e) => <option key={e} value={e}>{e}</option>)}
-                  </select>
-                </div>
-                {emotion === 'Custom' && (
-                  <div className="space-y-2">
-                    <label className="block text-sm font-medium text-zinc-700">Custom Direction</label>
-                    <input
-                      type="text"
-                      value={customDirection}
-                      onChange={(e) => setCustomDirection(e.target.value)}
-                      placeholder="e.g., Speak slowly..."
-                      className="w-full p-2.5 border border-zinc-200 rounded-lg focus:ring-2 focus:ring-zinc-900 focus:border-zinc-900 outline-none text-sm bg-white"
-                    />
-                  </div>
+                
+                {provider === 'Gemini' && (
+                  <>
+                    <div className="space-y-2">
+                      <label className="block text-sm font-medium text-zinc-700">Base Prompt</label>
+                      <input 
+                        type="text" 
+                        value={basePrompt} 
+                        onChange={(e) => setBasePrompt(e.target.value)}
+                        className="w-full p-2.5 border border-zinc-200 rounded-lg focus:ring-2 focus:ring-zinc-900 focus:border-zinc-900 outline-none text-sm bg-white"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="block text-sm font-medium text-zinc-700">Emotion / Style</label>
+                      <select
+                        value={emotion}
+                        onChange={(e) => setEmotion(e.target.value)}
+                        className="w-full p-2.5 border border-zinc-200 rounded-lg focus:ring-2 focus:ring-zinc-900 focus:border-zinc-900 outline-none bg-white text-sm"
+                      >
+                        {EMOTIONS.map((e) => <option key={e} value={e}>{e}</option>)}
+                      </select>
+                    </div>
+                    {emotion === 'Custom' && (
+                      <div className="space-y-2 md:col-span-2">
+                        <label className="block text-sm font-medium text-zinc-700">Custom Direction</label>
+                        <input
+                          type="text"
+                          value={customDirection}
+                          onChange={(e) => setCustomDirection(e.target.value)}
+                          placeholder="e.g., Speak slowly..."
+                          className="w-full p-2.5 border border-zinc-200 rounded-lg focus:ring-2 focus:ring-zinc-900 focus:border-zinc-900 outline-none text-sm bg-white"
+                        />
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
 
-              <div className="space-y-2 pt-2">
-                <label className="block text-sm font-medium text-zinc-700">Final Prompt Preview</label>
-                <div className="p-3 bg-zinc-200/50 rounded-lg text-sm text-zinc-700 font-mono whitespace-pre-wrap border border-zinc-200">
-                  {finalPrompt}
+              {provider === 'Gemini' && (
+                <div className="space-y-2 pt-2">
+                  <label className="block text-sm font-medium text-zinc-700">Final Prompt Preview</label>
+                  <div className="p-3 bg-zinc-200/50 rounded-lg text-sm text-zinc-700 font-mono whitespace-pre-wrap border border-zinc-200">
+                    {finalPrompt}
+                  </div>
                 </div>
-              </div>
+              )}
             </div>
           )}
 
@@ -348,26 +422,28 @@ async function generateIcelandicSpeech() {
         </div>
 
         {/* Cloud TTS JSON Viewer Card */}
-        <div className="bg-zinc-900 rounded-2xl shadow-sm border border-zinc-800 overflow-hidden">
-          <div className="flex items-center justify-between px-4 py-3 border-b border-zinc-800 bg-zinc-950">
-            <div className="flex items-center gap-2 text-zinc-400">
-              <Code className="w-4 h-4" />
-              <span className="text-sm font-medium">Cloud TTS JSON</span>
+        {provider === 'Gemini' && (
+          <div className="bg-zinc-900 rounded-2xl shadow-sm border border-zinc-800 overflow-hidden">
+            <div className="flex items-center justify-between px-4 py-3 border-b border-zinc-800 bg-zinc-950">
+              <div className="flex items-center gap-2 text-zinc-400">
+                <Code className="w-4 h-4" />
+                <span className="text-sm font-medium">Cloud TTS JSON</span>
+              </div>
+              <button
+                onClick={handleCopyJson}
+                className="flex items-center gap-1.5 text-xs font-medium text-zinc-400 hover:text-zinc-100 transition-colors bg-zinc-800/50 hover:bg-zinc-800 px-2.5 py-1.5 rounded-md"
+              >
+                {copiedJson ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                {copiedJson ? 'Copied!' : 'Copy JSON'}
+              </button>
             </div>
-            <button
-              onClick={handleCopyJson}
-              className="flex items-center gap-1.5 text-xs font-medium text-zinc-400 hover:text-zinc-100 transition-colors bg-zinc-800/50 hover:bg-zinc-800 px-2.5 py-1.5 rounded-md"
-            >
-              {copiedJson ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-              {copiedJson ? 'Copied!' : 'Copy JSON'}
-            </button>
+            <div className="p-4 overflow-x-auto">
+              <pre className="text-sm text-zinc-300 font-mono leading-relaxed">
+                <code>{cloudTtsJson}</code>
+              </pre>
+            </div>
           </div>
-          <div className="p-4 overflow-x-auto">
-            <pre className="text-sm text-zinc-300 font-mono leading-relaxed">
-              <code>{cloudTtsJson}</code>
-            </pre>
-          </div>
-        </div>
+        )}
 
         {/* Documentation / Help Card */}
         <div className="bg-white rounded-2xl shadow-sm border border-zinc-200 p-6">
@@ -376,38 +452,24 @@ async function generateIcelandicSpeech() {
               <Info className="w-5 h-5 text-zinc-400" />
             </div>
             <div className="space-y-3">
-              <h3 className="font-medium text-zinc-900">How Emotions and Directions Work</h3>
+              <h3 className="font-medium text-zinc-900">About Providers and Voices</h3>
               <div className="text-sm text-zinc-600 space-y-4">
-                <p>
-                  Unlike older TTS systems, Gemini 2.5 Flash TTS does not use traditional SSML tags (like <code>&lt;prosody&gt;</code> or <code>&lt;emotion&gt;</code>). Instead, it understands <strong>natural language prompting</strong>.
-                </p>
-                
                 <div>
-                  <h4 className="font-medium text-zinc-900 mb-1">Built-in Options</h4>
+                  <h4 className="font-medium text-zinc-900 mb-1">Gemini 2.5 Flash TTS</h4>
                   <p>
-                    When you select an emotion from the dropdown (e.g., <em>Cheerfully</em>), the app automatically prepends an instruction to the AI: <br/>
-                    <code className="bg-zinc-100 px-1.5 py-0.5 rounded text-zinc-800 mt-1 inline-block">Speak in Icelandic and say it cheerfully: [Your Text]</code>
+                    Gemini uses <strong>natural language prompting</strong> instead of SSML tags. The app automatically prepends your selected emotion/style to the text. You can use the <strong>Custom</strong> option to write specific instructions (e.g., <em>"Speak very slowly and clearly like a teacher"</em>). Gemini strictly supports exactly <strong>5 prebuilt voices</strong> (Puck, Charon, Kore, Fenrir, Zephyr), which adapt to sound Icelandic based on the prompt.
                   </p>
                 </div>
 
                 <div>
-                  <h4 className="font-medium text-zinc-900 mb-1">Custom Directions</h4>
+                  <h4 className="font-medium text-zinc-900 mb-1">OpenAI & ElevenLabs</h4>
                   <p>
-                    By selecting <strong>Custom</strong>, you can write your own specific instructions. The AI is highly responsive to descriptive cues. Examples you can try:
+                    You can now select <strong>OpenAI</strong> or <strong>ElevenLabs</strong> for additional high-quality voices. These providers require their respective API keys to be configured in the environment variables (<code>OPENAI_API_KEY</code> and <code>ELEVENLABS_API_KEY</code>).
                   </p>
                   <ul className="list-disc pl-5 mt-2 space-y-1">
-                    <li><em>"Speak very slowly and clearly like a teacher"</em></li>
-                    <li><em>"Whisper as if you are telling a secret"</em></li>
-                    <li><em>"Speak with a deep, dramatic, cinematic voice"</em></li>
-                    <li><em>"Sound terrified and out of breath"</em></li>
+                    <li><strong>OpenAI:</strong> Uses the <code>tts-1</code> model which supports multiple languages including Icelandic.</li>
+                    <li><strong>ElevenLabs:</strong> Uses the <code>eleven_turbo_v2_5</code> multilingual model for highly realistic speech.</li>
                   </ul>
-                </div>
-                
-                <div className="pt-2 border-t border-zinc-100">
-                  <h4 className="font-medium text-zinc-900 mb-1">Voice Limitations</h4>
-                  <p>
-                    The Gemini 2.5 Flash TTS API strictly supports exactly <strong>5 prebuilt voices</strong> (Puck, Charon, Kore, Fenrir, Zephyr). There are no other valid voice names in the API. The model adapts these core voices to sound like native Icelandic speakers based on the prompt instructions.
-                  </p>
                 </div>
               </div>
             </div>
