@@ -5,11 +5,12 @@ import { Play, Loader2, Volume2, Square, Info, Code, Copy, Check, Settings } fro
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
 // Note: Gemini 2.5 Flash TTS strictly supports only these 5 voices.
-const PROVIDERS = ['Gemini', 'OpenAI', 'ElevenLabs'];
+const PROVIDERS = ['Gemini', 'OpenAI', 'ElevenLabs', 'Google Cloud'];
 const VOICES: Record<string, string[]> = {
   Gemini: ['Puck', 'Charon', 'Kore', 'Fenrir', 'Zephyr'],
   OpenAI: ['Alloy', 'Echo', 'Fable', 'Onyx', 'Nova', 'Shimmer'],
-  ElevenLabs: ['Rachel', 'Drew', 'Clyde', 'Fin', 'Sarah', 'Antoni', 'Charlie', 'Callum', 'Charlotte', 'Alice', 'Matilda', 'Will', 'Freya', 'Jessie', 'Michael']
+  ElevenLabs: ['Rachel', 'Drew', 'Clyde', 'Fin', 'Sarah', 'Antoni', 'Charlie', 'Callum', 'Charlotte', 'Alice', 'Matilda', 'Will', 'Freya', 'Jessie', 'Michael'],
+  'Google Cloud': ['is-IS-Standard-A', 'is-IS-Standard-B']
 };
 const EMOTIONS = [
   { id: 'neutral', label: 'Hlutlaust', suffix: '' },
@@ -34,6 +35,8 @@ export default function App() {
   const [isPlaying, setIsPlaying] = useState(false);
   const [copied, setCopied] = useState(false);
   
+  const [isSsmlMode, setIsSsmlMode] = useState(false);
+  
   // OpenAI Settings
   const [openAiKey, setOpenAiKey] = useState('');
   const [openAiModel, setOpenAiModel] = useState('tts-1');
@@ -45,17 +48,23 @@ export default function App() {
   const [elevenLabsStability, setElevenLabsStability] = useState(0.5);
   const [elevenLabsSimilarity, setElevenLabsSimilarity] = useState(0.75);
 
+  // Google Cloud Settings
+  const [googleCloudKey, setGoogleCloudKey] = useState('');
+
   // Load saved keys on mount
   useEffect(() => {
     const savedOpenAi = localStorage.getItem('openai_api_key');
     const savedElevenLabs = localStorage.getItem('elevenlabs_api_key');
+    const savedGoogleCloud = localStorage.getItem('google_cloud_api_key');
     if (savedOpenAi) setOpenAiKey(savedOpenAi);
     if (savedElevenLabs) setElevenLabsKey(savedElevenLabs);
+    if (savedGoogleCloud) setGoogleCloudKey(savedGoogleCloud);
   }, []);
 
   const saveKeys = () => {
     localStorage.setItem('openai_api_key', openAiKey);
     localStorage.setItem('elevenlabs_api_key', elevenLabsKey);
+    localStorage.setItem('google_cloud_api_key', googleCloudKey);
     alert('API lyklar vistaðir!');
   };
 
@@ -128,6 +137,20 @@ const response = await fetch('/api/tts/elevenlabs', {
     stability: ${elevenLabsStability},
     similarity_boost: ${elevenLabsSimilarity},
     apiKey: ${elevenLabsKey ? `'${elevenLabsKey}'` : "'YOUR_API_KEY'"}
+  })
+});
+const data = await response.json();
+const audioBase64 = data.audioBase64;`;
+  } else if (provider === 'Google Cloud') {
+    codeSnippet = `// Call your backend endpoint
+const response = await fetch('/api/tts/google', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    text: ${JSON.stringify(text)},
+    voice: '${voice}',
+    isSsml: ${isSsmlMode},
+    apiKey: ${googleCloudKey ? `'${googleCloudKey}'` : "'YOUR_API_KEY'"}
   })
 });
 const data = await response.json();
@@ -226,6 +249,15 @@ const audioBase64 = data.audioBase64;`;
         });
         const data = await response.json();
         if (!response.ok) throw new Error(data.error || 'Failed to generate ElevenLabs speech');
+        playAudio(data.audioBase64, data.mimeType);
+      } else if (provider === 'Google Cloud') {
+        const response = await fetch('/api/tts/google', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text: isSsmlMode ? text : finalPrompt, voice, isSsml: isSsmlMode, apiKey: googleCloudKey })
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || 'Failed to generate Google Cloud speech');
         playAudio(data.audioBase64, data.mimeType);
       }
     } catch (err: any) {
@@ -466,9 +498,29 @@ const audioBase64 = data.audioBase64;`;
                     </div>
                   </>
                 )}
+                {provider === 'Google Cloud' && (
+                  <>
+                    <div className="space-y-2 md:col-span-2 pt-2 border-t border-zinc-200">
+                      <div className="flex items-center justify-between">
+                        <h4 className="text-sm font-medium text-zinc-900">Google Cloud Stillingar</h4>
+                        <button onClick={saveKeys} className="text-xs bg-zinc-200 hover:bg-zinc-300 text-zinc-800 px-2 py-1 rounded">Vista lykla</button>
+                      </div>
+                    </div>
+                    <div className="space-y-2 md:col-span-2">
+                      <label className="block text-sm font-medium text-zinc-700">API Lykill (Valfrjálst)</label>
+                      <input 
+                        type="password" 
+                        value={googleCloudKey} 
+                        onChange={(e) => setGoogleCloudKey(e.target.value)}
+                        placeholder="AIza..."
+                        className="w-full p-2.5 border border-zinc-200 rounded-lg focus:ring-2 focus:ring-zinc-900 focus:border-zinc-900 outline-none text-sm bg-white"
+                      />
+                    </div>
+                  </>
+                )}
               </div>
 
-              {provider === 'Gemini' && (
+              {provider === 'Gemini' && !isSsmlMode && (
                 <div className="space-y-2 pt-2">
                   <label className="block text-sm font-medium text-zinc-700">Forskoðun á endanlegum fyrirmælum</label>
                   <div className="p-3 bg-zinc-200/50 rounded-lg text-sm text-zinc-700 font-mono whitespace-pre-wrap border border-zinc-200">
@@ -480,18 +532,30 @@ const audioBase64 = data.audioBase64;`;
           )}
 
           <div className="p-6 space-y-6">
-            <div className="space-y-2">
+            <div className="flex items-center justify-between">
               <label htmlFor="text-input" className="block text-sm font-medium text-zinc-700">
                 Texti til að lesa
               </label>
-              <textarea
-                id="text-input"
-                value={text}
-                onChange={(e) => setText(e.target.value)}
-                className="w-full h-32 p-3 border border-zinc-200 rounded-xl focus:ring-2 focus:ring-zinc-900 focus:border-zinc-900 outline-none resize-none transition-all text-sm"
-                placeholder="Sláðu inn texta hér..."
-              />
+              {provider === 'Google Cloud' && (
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-zinc-600">SSML Stilling</span>
+                  <button
+                    onClick={() => setIsSsmlMode(!isSsmlMode)}
+                    className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${isSsmlMode ? 'bg-zinc-900' : 'bg-zinc-300'}`}
+                  >
+                    <span className={`inline-block h-3 w-3 transform rounded-full bg-white transition-transform ${isSsmlMode ? 'translate-x-5' : 'translate-x-1'}`} />
+                  </button>
+                </div>
+              )}
             </div>
+            
+            <textarea
+              id="text-input"
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              className="w-full h-32 p-3 border border-zinc-200 rounded-xl focus:ring-2 focus:ring-zinc-900 focus:border-zinc-900 outline-none resize-none transition-all text-sm font-mono"
+              placeholder={isSsmlMode ? "<speak>\n  Hæ, <break time=\"1s\"/> hvernig hefur þú það?\n</speak>" : "Sláðu inn texta hér..."}
+            />
 
             {error && (
               <div className="p-3 bg-red-50 text-red-700 text-sm rounded-xl border border-red-100">
@@ -602,6 +666,19 @@ const audioBase64 = data.audioBase64;`;
                     <li><strong>OpenAI:</strong> Notar <code>tts-1</code> líkanið sem styður mörg tungumál þar á meðal íslensku.</li>
                     <li><strong>ElevenLabs:</strong> Notar <code>eleven_turbo_v2_5</code> fjöltungumálalíkanið fyrir mjög raunverulegt tal.</li>
                   </ul>
+                </div>
+
+                <div>
+                  <h4 className="font-medium text-zinc-900 mb-1">Google Cloud TTS (SSML)</h4>
+                  <p>
+                    Google Cloud TTS styður <strong>SSML (Speech Synthesis Markup Language)</strong>, sem gerir þér kleift að stjórna hléum, áherslum og framburði. Til að nota það, veldu Google Cloud, kveiktu á SSML stillingunni og skrifaðu textann þinn innan <code>&lt;speak&gt;</code> merkja.
+                  </p>
+                  <pre className="mt-2 p-2 bg-zinc-100 rounded text-xs font-mono text-zinc-700">
+{`<speak>
+  Hér er smá hlé <break time="1s"/> áður en ég held áfram.
+  <emphasis level="strong">Þetta er mjög mikilvægt.</emphasis>
+</speak>`}
+                  </pre>
                 </div>
 
                 <div className="pt-2 border-t border-zinc-100">

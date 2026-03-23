@@ -30,9 +30,13 @@ async function startServer() {
   app.post("/api/tts/openai", async (req, res) => {
     try {
       const { text, voice, model = 'tts-1', speed = 1.0, apiKey } = req.body;
-      const keyToUse = apiKey || process.env.OPENAI_API_KEY || process.env.openai_api_key;
+      let keyToUse = apiKey ? apiKey.trim() : '';
+      if (!keyToUse || keyToUse === 'YOUR_API_KEY') {
+        keyToUse = (process.env.OPENAI_API_KEY || process.env.openai_api_key || '').trim();
+      }
+      
       if (!keyToUse) {
-        return res.status(400).json({ error: "OpenAI API Key is missing. Provide it in settings or environment." });
+        return res.status(400).json({ error: "OpenAI API Key is missing or invalid. Provide a valid key in settings or environment." });
       }
 
       const response = await fetch('https://api.openai.com/v1/audio/speech', {
@@ -66,9 +70,13 @@ async function startServer() {
   app.post("/api/tts/elevenlabs", async (req, res) => {
     try {
       const { text, voice, model_id = 'eleven_turbo_v2_5', stability = 0.5, similarity_boost = 0.75, apiKey } = req.body;
-      const keyToUse = apiKey || process.env.ELEVENLABS_API_KEY || process.env.ELEVENLABAS_API_KEY;
+      let keyToUse = apiKey ? apiKey.trim() : '';
+      if (!keyToUse || keyToUse === 'YOUR_API_KEY') {
+        keyToUse = (process.env.ELEVENLABS_API_KEY || process.env.ELEVENLABAS_API_KEY || '').trim();
+      }
+
       if (!keyToUse) {
-        return res.status(400).json({ error: "ElevenLabs API Key is missing. Provide it in settings or environment." });
+        return res.status(400).json({ error: "ElevenLabs API Key is missing or invalid. Provide a valid key in settings or environment." });
       }
 
       const voiceId = ELEVENLABS_VOICES[voice] || ELEVENLABS_VOICES['Rachel'];
@@ -97,6 +105,50 @@ async function startServer() {
       const arrayBuffer = await response.arrayBuffer();
       const base64 = Buffer.from(arrayBuffer).toString('base64');
       res.json({ audioBase64: base64, mimeType: 'audio/mpeg' });
+    } catch (error: any) {
+      console.error(error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post("/api/tts/google", async (req, res) => {
+    try {
+      const { text, voice, isSsml, apiKey } = req.body;
+      let keyToUse = apiKey ? apiKey.trim() : '';
+      if (!keyToUse || keyToUse === 'YOUR_API_KEY') {
+        keyToUse = (process.env.GOOGLE_API_KEY || process.env.GOOGLE_CLOUD_API_KEY || '').trim();
+      }
+
+      if (!keyToUse) {
+        return res.status(400).json({ error: "Google Cloud API Key is missing or invalid. Provide a valid key in settings or environment." });
+      }
+
+      const requestBody = {
+        input: isSsml ? { ssml: text } : { text: text },
+        voice: {
+          languageCode: "is-IS",
+          name: voice || "is-IS-Standard-A"
+        },
+        audioConfig: {
+          audioEncoding: "MP3"
+        }
+      };
+
+      const response = await fetch(`https://texttospeech.googleapis.com/v1/text:synthesize?key=${keyToUse}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(requestBody),
+      });
+
+      if (!response.ok) {
+        const errText = await response.text();
+        throw new Error(`Google Cloud API Error: ${errText}`);
+      }
+
+      const data = await response.json();
+      res.json({ audioBase64: data.audioContent, mimeType: 'audio/mpeg' });
     } catch (error: any) {
       console.error(error);
       res.status(500).json({ error: error.message });
